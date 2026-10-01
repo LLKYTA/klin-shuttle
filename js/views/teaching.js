@@ -1,0 +1,50 @@
+import { teachingItems } from '../data/teaching.js';
+import { cardHTML, bindFavoriteButtons, hydrateCards } from '../components/card.js';
+
+const ALL_TAGS = [...new Set(teachingItems.flatMap((i) => i.tags))];
+
+export function renderTeaching(app, params, query = {}) {
+  const activeTag = query.tag || '';
+
+  const filtered = activeTag
+    ? teachingItems.filter((i) => i.tags.includes(activeTag))
+    : teachingItems;
+
+  const chips = ALL_TAGS.map((t) => {
+    const active = t === activeTag;
+    const href = active ? '#/teaching' : `#/teaching?tag=${encodeURIComponent(t)}`;
+    return `<a class="chip"${active ? ' data-active' : ''} href="${href}">${t}</a>`;
+  }).join('');
+
+  const cards = filtered.length
+    ? filtered.map((item) => cardHTML(item, 'teaching')).join('')
+    : `<div class="empty-state" style="grid-column: 1 / -1;">
+         <div class="empty-state-icon">🔍</div>
+         <div class="empty-state-title">没有找到匹配的教程</div>
+         <p>试试其他标签，或清空筛选。</p>
+       </div>`;
+
+  app.innerHTML = `
+    <div class="list-header">
+      <h1>羽毛球教学</h1>
+      <p>系统化的技术教程，从握拍开始，逐步深入。</p>
+    </div>
+    <div class="toolbar">
+      <input class="search-input" type="search" placeholder="搜索教程标题、描述或标签…">
+      <div class="chips">${chips}</div>
+    </div>
+    <div class="grid-2">${cards}</div>
+  `;
+
+  bindFavoriteButtons(app);
+  hydrateCards(app);
+
+  const input = app.querySelector('.search-input');
+  input.addEventListener('input', () => {
+    const value = input.value.trim().toLowerCase();
+    app.querySelectorAll('.card').forEach((card) => {
+      const text = card.dataset.search || '';
+      card.style.display = !value || text.includes(value) ? '' : 'none';
+    });
+  });
+}

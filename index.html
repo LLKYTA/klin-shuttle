@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>羽球社区 · Badminton Community</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#/">羽球社区</a>
+    <nav class="site-nav">
+      <a href="#/teaching" data-nav="teaching">教学</a>
+      <a href="#/practice" data-nav="practice">实战</a>
+      <a href="#/favorites" data-nav="favorites">
+        收藏 <span class="nav-badge" id="fav-count" data-empty>0</span>
+      </a>
+      <button class="theme-toggle" id="theme-toggle" aria-label="切换主题">
+        <span class="theme-icon"></span>
+      </button>
+    </nav>
+  </header>
+
+  <main id="app"></main>
+
+  <footer class="site-footer">
+    <p>羽球社区 · 用更好的方式学羽毛球 · Made by KD_klin</p>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
