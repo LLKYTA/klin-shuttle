@@ -18,4 +18,4 @@ node_modules/
 # videos/*.mp4
 
 # UAPI 本地配置（含 Key，勿提交）
-js/config.js
+#js/config.js
