@@ -1,10 +1,6 @@
 import { isFavorite, toggleFavorite } from '../store.js';
 import { getBilibiliVideoInfo, formatDuration } from '../services/uapi.js';
 
-/**
- * 生成一张视频卡片 HTML。
- * 若 item 带 bvid/aid，卡片渲染后由 hydrateCards 异步补齐封面、标题、时长。
- */
 export function cardHTML(item, section) {
   const key = `${section}:${item.id}`;
   const fav = isFavorite(key);
@@ -71,24 +67,76 @@ export function updateFavCount() {
   el.toggleAttribute('data-empty', count === 0);
 }
 
+/* ---------- 视口懒加载 ---------- */
+
+let currentObserver = null;
+
 /**
- * 异步为容器内所有带 bvid/aid 的卡片补齐封面、标题、时长。
- * 并发请求，失败的卡片静默降级为本地字段。
+ * 只加载视口内可见的卡片。
+ *
+ * 原理：
+ *   - IntersectionObserver 的 rootMargin 设为 '0px'，卡片完全未进入视口时不触发
+ *   - 卡片首次进入视口 → 立即发请求 → 渲染 → unobserve（不再重复观察）
+ *   - 滚出视口不影响已发出的请求（避免浪费），但不会重发
+ *   - 路由切换时断开旧 observer，防止跨页面误触发
  */
-export async function hydrateCards(container) {
-  const cards = container.querySelectorAll('.card[data-bvid], .card[data-aid]');
-  await Promise.all([...cards].map((card) => hydrateOneCard(card)));
+export function hydrateCards(container) {
+  // 断开上一次的观察器（路由切换场景）
+  if (currentObserver) {
+    currentObserver.disconnect();
+    currentObserver = null;
+  }
+
+  const cards = [...container.querySelectorAll('.card[data-bvid], .card[data-aid]')]
+    .filter((card) => card.dataset.hydrated !== '1');
+
+  if (cards.length === 0) return;
+
+  // 兜底：老浏览器不支持 IntersectionObserver，退化为全部加载
+  if (!('IntersectionObserver' in window)) {
+    cards.forEach((card) => hydrateOneCard(card));
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const card = entry.target;
+        observer.unobserve(card);
+        hydrateOneCard(card);
+      }
+    },
+    {
+    root: null,
+    rootMargin: '100px 0px',  // 提前 100px 就开始加载
+    threshold: 0
+    }
+  );
+
+  currentObserver = observer;
+  cards.forEach((card) => observer.observe(card));
 }
 
 async function hydrateOneCard(card) {
+  if (card.dataset.hydrated === '1') return;
+
   const bvid = card.dataset.bvid || '';
   const aid = card.dataset.aid || '';
-  if (!bvid && !aid) return;
+  if (!bvid && !aid) {
+    card.dataset.hydrated = '1';
+    return;
+  }
+
+  // 先打标记，防止同一张卡片被重复触发
+  card.dataset.hydrated = '1';
+
   try {
     const info = await getBilibiliVideoInfo({ bvid, aid });
     applyInfoToCard(card, info);
   } catch (err) {
     console.warn('[uapi] 卡片数据加载失败:', err.message);
+    // 失败也保留标记，滚动回来不会重发；用户可手动清缓存再试
   }
 }
 
@@ -130,6 +178,4 @@ function applyInfoToCard(card, info) {
   if (descEl && !descEl.textContent.trim() && info.desc) {
     descEl.textContent = info.desc;
   }
-
-  card.dataset.hydrated = '1';
 }
