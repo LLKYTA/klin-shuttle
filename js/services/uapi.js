@@ -1,15 +1,15 @@
 /**
  * UAPI 客户端：B站视频信息查询。
- *
  * 文档：https://uapis.cn/docs/api-reference/get-social-bilibili-videoinfo
  * 端点：GET https://uapis.cn/api/v1/social/bilibili/videoinfo
  * 鉴权：Authorization: Bearer uapi-xxxxxxxx
  *
- * 限流策略：
+ * 策略：
  *   - 请求队列：最多 2 并发，两次请求间隔 ≥ 300ms
- *   - 429 / 5xx：自动退避重试，最多 2 次，优先读 Retry-After
+ *   - 429 / 5xx：退避重试，最多 2 次，优先读 Retry-After
  *   - 缓存：localStorage + 内存双层，默认 TTL 24 小时
  *   - 超时：10 秒（AbortController）
+ *   - 代理：proxyBase 非空时改走代理，避免浏览器 CORS 拦截
  */
 
 import { UAPI_CONFIG } from '../config.js';
@@ -90,8 +90,13 @@ export class UapiError extends Error {
 
 function getApiKey() {
   const fromStorage = (localStorage.getItem('uapi.key') || '').trim();
-  if (fromStorage) return fromStorage;
-  return (UAPI_CONFIG.apiKey || '').trim();
+  const raw = fromStorage || (UAPI_CONFIG.apiKey || '').trim();
+  if (!raw) return '';
+  if (!/^uapi-/.test(raw)) {
+    console.warn('[uapi] Key 应以 "uapi-" 开头，当前值被忽略。请用 UAPI.setKey("uapi-xxxx") 重新设置。');
+    return '';
+  }
+  return '';
 }
 
 function resolveUrl() {
@@ -171,7 +176,11 @@ async function requestOnce(url, headers, timeout) {
     if (err && err.name === 'AbortError') {
       throw new UapiError('请求超时', { kind: 'timeout' });
     }
-    throw new UapiError(`网络异常：${err.message}`, { kind: 'network' });
+    // fetch 失败通常是网络/CORS/代理不可达
+    throw new UapiError(
+      `网络异常：${err.message}（若为 CORS 报错，请检查 proxyBase 是否已正确指向代理）`,
+      { kind: 'network' }
+    );
   }
 
   if (res.status === 401 || res.status === 403) {
@@ -202,13 +211,18 @@ async function requestOnce(url, headers, timeout) {
   if (!data || typeof data !== 'object') {
     throw new UapiError('响应格式不正确', { kind: 'malformed' });
   }
+  // 文档中成功响应为扁平结构，顶层必有 bvid
   if (!data.bvid) {
     const msg = data.message || data.msg || data.error || '响应缺少 bvid 字段';
     throw new UapiError(String(msg), { kind: 'api' });
   }
 
+  // 头像/封面统一升为 https，避免混合内容被浏览器拦截
   if (typeof data.pic === 'string' && data.pic.startsWith('http://')) {
     data.pic = 'https://' + data.pic.slice(7);
+  }
+  if (data.owner && typeof data.owner.face === 'string' && data.owner.face.startsWith('http://')) {
+    data.owner.face = 'https://' + data.owner.face.slice(7);
   }
 
   return data;
@@ -296,4 +310,21 @@ export function formatCount(n) {
 
 export function getQueueStatus() {
   return { active: activeCount, pending: queue.length };
+}
+
+/** 返回当前运行时配置（脱敏），用于控制台诊断。 */
+export function describeRuntime() {
+  const rawKey = (localStorage.getItem('uapi.key') || '').trim() || (UAPI_CONFIG.apiKey || '').trim();
+  const proxy = (UAPI_CONFIG.proxyBase || '').trim();
+  return {
+    请求地址: resolveUrl(),
+    是否走代理: !!proxy,
+    代理地址: proxy || '（直连 uapis.cn，浏览器会触发 CORS）',
+    Key来源: rawKey
+      ? (localStorage.getItem('uapi.key') ? 'localStorage' : 'js/config.js')
+      : '未配置',
+    Key格式: rawKey ? (/^uapi-/.test(rawKey) ? '✅ 正确' : '❌ 应以 uapi- 开头') : '—',
+    Key脱敏: rawKey ? rawKey.slice(0, 10) + '****' + rawKey.slice(-4) : '—',
+    缓存TTL: UAPI_CONFIG.cacheTTL
+  };
 }
